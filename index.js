@@ -141,26 +141,38 @@ async function run() {
 
         // Modified GET /books route - authentication is optional for public access
         app.get('/books', async (req, res) => {
-            const email = req.query.email;
+            const page = parseInt(req.query.page) || 1;
+            const limit = parseInt(req.query.limit) || 10;
+            const skip = (page - 1) * limit;
 
-            if (email) {
-                return verifyFirebaseToken(req, res, () => {
-                    verifyTokenEmail(req, res, async () => {
-                        try {
-                            const books = await bookCollection.find({ user_email: email }).toArray();
-                            res.status(200).json(books);
-                        } catch (err) {
-                            console.error(err);
-                            res.status(500).json({ message: 'Failed to fetch user books' });
-                        }
-                    });
-                });
+            const search = req.query.search || '';
+            const readingStatus = req.query.status || '';
+
+            // Build MongoDB query
+            let query = {};
+            if (search) {
+                query.$or = [
+                    { book_title: { $regex: search, $options: 'i' } },
+                    { book_author: { $regex: search, $options: 'i' } }
+                ];
+            }
+            if (readingStatus) {
+                query.reading_status = readingStatus;
             }
 
-            // No email: public books
             try {
-                const books = await bookCollection.find({}).toArray();
-                res.status(200).json(books);
+                const totalBooks = await bookCollection.countDocuments(query);
+                const books = await bookCollection.find(query)
+                    .skip(skip)
+                    .limit(limit)
+                    .toArray();
+
+                res.status(200).json({
+                    books,
+                    totalBooks,
+                    totalPages: Math.ceil(totalBooks / limit),
+                    currentPage: page
+                });
             } catch (err) {
                 console.error(err);
                 res.status(500).json({ message: 'Failed to fetch books' });
