@@ -179,6 +179,25 @@ async function run() {
             }
         });
 
+        // GET /books/popular - Fetch popular books
+        app.get('/books/popular', async (req, res) => {
+            try {
+                // Fetch all books that have an integer upvote value
+                const popularBooks = await bookCollection.find({
+                    upvote: { $type: "int" }  // Mongo filter for integer type (optional, ensures numeric)
+                })
+                    .sort({ upvote: -1 })   // Sort descending by upvote count
+                    .limit(8)               // Limit to top 8 popular books
+                    .toArray();
+
+                res.status(200).json(popularBooks);
+            } catch (err) {
+                console.error(err);
+                res.status(500).json({ message: 'Failed to fetch popular books' });
+            }
+        });
+
+
         // GET /books/categories - Get distinct categories with book count and a sample cover
         app.get('/books/categories', async (req, res) => {
             try {
