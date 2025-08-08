@@ -139,6 +139,95 @@ async function run() {
 
         // ********* Book related APIs *********
 
+        // GET /books/my-books - Fetch books for the authenticated user (no search or filter)
+        app.get('/books/my-books', verifyFirebaseToken, async (req, res) => {
+            try {
+                const userEmail = req.user.email;
+
+                if (!userEmail) {
+                    return res.status(400).json({ message: 'User email not found in token' });
+                }
+
+                const page = parseInt(req.query.page) || 1;
+                const limit = parseInt(req.query.limit) || 20;
+                const skip = (page - 1) * limit;
+
+                // Query only by user email
+                const query = { user_email: userEmail };
+
+                // Count total books for user
+                const totalBooks = await bookCollection.countDocuments(query);
+
+                // Fetch paginated books for user, sorted newest first
+                const books = await bookCollection.find(query)
+                    .sort({ createdAt: -1 })
+                    .skip(skip)
+                    .limit(limit)
+                    .toArray();
+
+                res.status(200).json({
+                    books,
+                    totalBooks,
+                    totalPages: Math.ceil(totalBooks / limit),
+                    currentPage: page,
+                    message: totalBooks === 0 ? 'No books found in your collection' : undefined
+                });
+
+            } catch (err) {
+                console.error('Error fetching user books:', err);
+                res.status(500).json({ message: 'Failed to fetch your books' });
+            }
+        });
+
+        // GET /books/my-books/stats - Get user's reading statistics
+        app.get('/books/my-books/stats', verifyFirebaseToken, async (req, res) => {
+            try {
+                const userEmail = req.user.email;
+
+                if (!userEmail) {
+                    return res.status(400).json({ message: 'User email not found in token' });
+                }
+
+                // Aggregate user's reading statistics
+                const stats = await bookCollection.aggregate([
+                    { $match: { user_email: userEmail } },
+                    {
+                        $group: {
+                            _id: '$reading_status',
+                            count: { $sum: 1 }
+                        }
+                    },
+                    {
+                        $group: {
+                            _id: null,
+                            total: { $sum: '$count' },
+                            statusBreakdown: {
+                                $push: {
+                                    status: '$_id',
+                                    count: '$count'
+                                }
+                            }
+                        }
+                    },
+                    {
+                        $project: {
+                            _id: 0,
+                            total: 1,
+                            statusBreakdown: 1
+                        }
+                    }
+                ]).toArray();
+
+                const result = stats[0] || { total: 0, statusBreakdown: [] };
+
+                res.status(200).json(result);
+
+            } catch (err) {
+                console.error('Error fetching user stats:', err);
+                res.status(500).json({ message: 'Failed to fetch reading statistics' });
+            }
+        });
+
         // Modified GET /books route - authentication is optional for public access
         app.get('/books', async (req, res) => {
             const page = parseInt(req.query.page) || 1;
@@ -196,7 +285,6 @@ async function run() {
                 res.status(500).json({ message: 'Failed to fetch popular books' });
             }
         });
-
 
         // GET /books/categories - Get distinct categories with book count and a sample cover
         app.get('/books/categories', async (req, res) => {
